@@ -1,0 +1,3 @@
+# Monadoc
+
+Better Haskell documentation.

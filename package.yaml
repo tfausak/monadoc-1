@@ -10,10 +10,14 @@ synopsis: Better Haskell documentation.
 
 dependencies:
   - base == 4.10.1.0
+  - http-types == 0.11
+  - wai == 3.2.1.1
+  - warp == 3.2.13
 ghc-options:
   - -Weverything
   - -Wno-implicit-prelude
   - -Wno-safe
+  - -Wno-unsafe
 
 library:
   source-dirs: library
