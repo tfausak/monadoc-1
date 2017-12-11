@@ -1,0 +1,27 @@
+name: monadoc
+version: 0.0.0
+
+category: Documentation
+description: Monadoc provides better Haskell documentation.
+license: MIT
+license-file: LICENSE.markdown
+maintainer: Taylor Fausak
+synopsis: Better Haskell documentation.
+
+dependencies:
+  - base == 4.10.1.0
+ghc-options:
+  - -Weverything
+  - -Wno-implicit-prelude
+  - -Wno-safe
+
+library:
+  source-dirs: library
+
+executable:
+  dependencies: monadoc
+  ghc-options:
+    - -rtsopts
+    - -threaded
+  main: Main.hs
+  source-dirs: executables
