@@ -1,10 +1,19 @@
 module Monadoc where
 
+import Data.Semigroup ((<>))
+
 import qualified Control.Monad as Monad
+import qualified Data.Aeson as Json
+import qualified Data.ByteString as Bytes
+import qualified Data.String as String
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 import qualified Data.Version as Version
 import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Server
 import qualified Network.Wai.Handler.Warp as Server
+import qualified Network.Wai.Middleware.Gzip as Server
+import qualified Network.Wai.Middleware.RequestLogger as Server
 import qualified Paths_monadoc as This
 import qualified System.Console.GetOpt as Console
 import qualified System.Environment as Environment
@@ -22,7 +31,7 @@ mainWithArguments :: [String] -> IO ()
 mainWithArguments arguments = do
   options <- getOptions arguments
   let settings = makeSettings options
-  Server.runSettings settings application
+  Server.runSettings settings $ applyMiddleware application
 
 getOptions :: [String] -> IO Options
 getOptions arguments = do
@@ -30,45 +39,62 @@ getOptions arguments = do
   showUnexpecteds unexpecteds
   showUnknowns unknowns
   Monad.unless (null errors) $ showErrorsAndExit errors
-  options <- either showProblemAndExit pure $ buildOptions updates
+  options <- buildOptionsOrExit updates
   Monad.when (optionsShowHelp options) showHelpAndExit
   Monad.when (optionsShowVersion options) showVersionAndExit
   pure options
 
 data Options = Options
-  { optionsPort :: Server.Port
+  { optionsHost :: Server.HostPreference
+  , optionsPort :: Server.Port
   , optionsShowHelp :: Bool
   , optionsShowVersion :: Bool
   } deriving (Eq, Show)
 
-descriptions :: [Console.OptDescr (Options -> Either String Options)]
-descriptions =
-  [ Console.Option
-    ['h']
-    ["help"]
-    (Console.NoArg (\options -> pure options { optionsShowHelp = True }))
-    "show the help"
-  , Console.Option
-    ['p']
-    ["port"]
-    ( Console.ReqArg
-      ( \rawPort options -> do
-        port <- Read.readEither rawPort
-        pure options { optionsPort = port }
-      )
-      "PORT"
-    )
-    "port to listen on"
-  , Console.Option
-    ['v']
-    ["version"]
-    (Console.NoArg (\options -> pure options { optionsShowVersion = True }))
-    "show the version"
-  ]
+type Update = Options -> Either String Options
 
-parseArguments
-  :: [String]
-  -> ([Options -> Either String Options], [String], [String], [String])
+descriptions :: [Console.OptDescr Update]
+descriptions =
+  [helpDescription, hostDescription, portDescription, versionDescription]
+
+helpDescription :: Console.OptDescr Update
+helpDescription = Console.Option
+  []
+  ["help"]
+  (Console.NoArg (\options -> pure options { optionsShowHelp = True }))
+  "show the help"
+
+hostDescription :: Console.OptDescr Update
+hostDescription = Console.Option
+  []
+  ["host"]
+  ( Console.ReqArg
+    (\host options -> pure options { optionsHost = String.fromString host })
+    "HOST"
+  )
+  "host to bind to"
+
+portDescription :: Console.OptDescr Update
+portDescription = Console.Option
+  []
+  ["port"]
+  ( Console.ReqArg
+    ( \rawPort options -> case Read.readMaybe rawPort of
+      Nothing -> fail ("invalid port: " <> show rawPort)
+      Just port -> pure options { optionsPort = port }
+    )
+    "PORT"
+  )
+  "port to listen on"
+
+versionDescription :: Console.OptDescr Update
+versionDescription = Console.Option
+  []
+  ["version"]
+  (Console.NoArg (\options -> pure options { optionsShowVersion = True }))
+  "show the version"
+
+parseArguments :: [String] -> ([Update], [String], [String], [String])
 parseArguments = Console.getOpt' Console.Permute descriptions
 
 showUnexpecteds :: [String] -> IO ()
@@ -89,12 +115,16 @@ showErrorsAndExit errors = do
 warn :: String -> IO ()
 warn = Io.hPutStr Io.stderr
 
-buildOptions :: [Options -> Either String Options] -> Either String Options
-buildOptions = foldl (flip $ either Left) $ pure defaultOptions
+buildOptionsOrExit :: [Update] -> IO Options
+buildOptionsOrExit = either showProblemAndExit pure . buildOptions
+
+buildOptions :: [Update] -> Either String Options
+buildOptions = Monad.foldM (\options update -> update options) defaultOptions
 
 defaultOptions :: Options
 defaultOptions = Options
-  { optionsPort = 8080
+  { optionsHost = String.fromString "127.0.0.1"
+  , optionsPort = 8080
   , optionsShowHelp = False
   , optionsShowVersion = False
   }
@@ -119,8 +149,42 @@ showVersionAndExit = do
   Exit.exitFailure
 
 makeSettings :: Options -> Server.Settings
-makeSettings options = Server.setServerName mempty
-  $ Server.setPort (optionsPort options) Server.defaultSettings
+makeSettings options =
+  Server.setBeforeMainLoop (beforeMainLoop options)
+    . Server.setOnExceptionResponse exceptionResponse
+    . Server.setPort (optionsPort options)
+    . Server.setServerName mempty
+    $ Server.defaultSettings
+
+beforeMainLoop :: Options -> IO ()
+beforeMainLoop options = Printf.printf
+  "Listening on %s port %d\n"
+  (show $ optionsHost options)
+  (optionsPort options)
+
+exceptionResponse :: exception -> Server.Response
+exceptionResponse _ = jsonResponse Http.status500 [] Json.Null
+
+jsonResponse
+  :: Json.ToJSON a
+  => Http.Status
+  -> Http.ResponseHeaders
+  -> a
+  -> Server.Response
+jsonResponse status headers =
+  Server.responseLBS status (addJsonHeader headers) . Json.encode
+
+addJsonHeader :: Http.ResponseHeaders -> Http.ResponseHeaders
+addJsonHeader = (jsonHeader :)
+
+jsonHeader :: Http.Header
+jsonHeader = (Http.hContentType, jsonMime)
+
+jsonMime :: Bytes.ByteString
+jsonMime = Text.encodeUtf8 $ Text.pack "application/json"
+
+applyMiddleware :: Server.Middleware
+applyMiddleware = Server.gzip Server.def . Server.logStdout
 
 application :: Server.Application
-application _ respond = respond $ Server.responseLBS Http.status501 [] mempty
+application _ respond = respond $ jsonResponse Http.status501 [] Json.Null
