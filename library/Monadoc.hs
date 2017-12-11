@@ -2,13 +2,20 @@ module Monadoc where
 
 import Data.Semigroup ((<>))
 
+import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
+import qualified Control.Monad.Trans.Except as Except
+import qualified Control.Monad.Trans.Reader as Reader
 import qualified Data.Aeson as Json
 import qualified Data.ByteString as Bytes
 import qualified Data.String as String
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Version as Version
+import qualified Distribution.ModuleName as Cabal
+import qualified Distribution.Text as Cabal
+import qualified Distribution.Types.PackageName as Cabal
+import qualified Distribution.Version as Cabal
 import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Server
 import qualified Network.Wai.Handler.Warp as Server
@@ -22,8 +29,8 @@ import qualified System.IO as Io
 import qualified Text.Printf as Printf
 import qualified Text.Read as Read
 
-main :: IO ()
-main = do
+defaultMain :: IO ()
+defaultMain = do
   arguments <- Environment.getArgs
   mainWithArguments arguments
 
@@ -107,7 +114,7 @@ showUnknowns = mapM_ (warnLn . Printf.printf "WARNING: unknown option `%s'")
 warnLn :: String -> IO ()
 warnLn = Io.hPutStrLn Io.stderr
 
-showErrorsAndExit :: [String] -> IO a
+showErrorsAndExit :: [String] -> IO never
 showErrorsAndExit errors = do
   mapM_ (warn . Printf.printf "ERROR: %s") errors
   Exit.exitFailure
@@ -129,12 +136,12 @@ defaultOptions = Options
   , optionsShowVersion = False
   }
 
-showProblemAndExit :: String -> IO a
+showProblemAndExit :: String -> IO never
 showProblemAndExit problem = do
   warnLn $ Printf.printf "ERROR: %s" problem
   Exit.exitFailure
 
-showHelpAndExit :: IO a
+showHelpAndExit :: IO never
 showHelpAndExit = do
   name <- Environment.getProgName
   putStr $ Console.usageInfo (unwords [name, "version", version]) descriptions
@@ -143,7 +150,7 @@ showHelpAndExit = do
 version :: String
 version = Version.showVersion This.version
 
-showVersionAndExit :: IO a
+showVersionAndExit :: IO never
 showVersionAndExit = do
   putStrLn version
   Exit.exitFailure
@@ -162,14 +169,14 @@ beforeMainLoop options = Printf.printf
   (show $ optionsHost options)
   (optionsPort options)
 
-exceptionResponse :: exception -> Server.Response
+exceptionResponse :: Exception.SomeException -> Server.Response
 exceptionResponse _ = jsonResponse Http.status500 [] Json.Null
 
 jsonResponse
-  :: Json.ToJSON a
+  :: Json.ToJSON json
   => Http.Status
   -> Http.ResponseHeaders
-  -> a
+  -> json
   -> Server.Response
 jsonResponse status headers =
   Server.responseLBS status (addJsonHeader headers) . Json.encode
@@ -181,10 +188,88 @@ jsonHeader :: Http.Header
 jsonHeader = (Http.hContentType, jsonMime)
 
 jsonMime :: Bytes.ByteString
-jsonMime = Text.encodeUtf8 $ Text.pack "application/json"
+jsonMime = toUtf8 "application/json"
+
+toUtf8 :: String -> Bytes.ByteString
+toUtf8 = Text.encodeUtf8 . Text.pack
 
 applyMiddleware :: Server.Middleware
 applyMiddleware = Server.gzip Server.def . Server.logStdout
 
 application :: Server.Application
-application _ respond = respond $ jsonResponse Http.status501 [] Json.Null
+application request respond = do
+  let handler = getHandler request
+  response <- runHandler handler request
+  respond response
+
+getHandler :: Server.Request -> Handler
+getHandler request = case (requestMethod request, requestPath request) of
+  ("GET", [packageName, versionNumber, moduleName]) ->
+    getModuleHandler packageName versionNumber moduleName
+  _ -> notFoundHandler
+
+type Handler
+  = Except.ExceptT String
+  ( Reader.ReaderT Server.Request IO
+  ) Server.Response
+
+requestMethod :: Server.Request -> String
+requestMethod = fromUtf8 . Server.requestMethod
+
+fromUtf8 :: Bytes.ByteString -> String
+fromUtf8 = Text.unpack . Text.decodeUtf8
+
+requestPath :: Server.Request -> [String]
+requestPath = fmap Text.unpack . Server.pathInfo
+
+getModuleHandler :: String -> String -> String -> Handler
+getModuleHandler rawPackage rawVersion rawModule = do
+  _ <- parsePackageName rawPackage
+  _ <- parseVersionNumber rawVersion
+  _ <- parseModuleName rawModule
+  pure $ jsonResponse Http.status501 [] Json.Null
+
+parsePackageName
+  :: Monad m => String -> Except.ExceptT String m Cabal.PackageName
+parsePackageName packageName =
+  maybe
+      ( Except.throwE . Printf.printf "invalid package name: %s" $ show
+        packageName
+      )
+      pure
+    $ Cabal.simpleParse packageName
+
+parseVersionNumber
+  :: Monad m => String -> Except.ExceptT String m Cabal.Version
+parseVersionNumber versionNumber =
+  maybe
+      ( Except.throwE . Printf.printf "invalid version number: %s" $ show
+        versionNumber
+      )
+      pure
+    $ Cabal.simpleParse versionNumber
+
+parseModuleName
+  :: Monad m => String -> Except.ExceptT String m Cabal.ModuleName
+parseModuleName moduleName =
+  maybe
+      ( Except.throwE . Printf.printf "invalid module name: %s" $ show
+        moduleName
+      )
+      pure
+    $ Cabal.simpleParse moduleName
+
+notFoundHandler :: Handler
+notFoundHandler = pure notFoundResponse
+
+notFoundResponse :: Server.Response
+notFoundResponse = jsonResponse Http.status404 [] Json.Null
+
+runHandler :: Handler -> Server.Request -> IO Server.Response
+runHandler handler request = do
+  result <- Reader.runReaderT (Except.runExceptT handler) request
+  let response = either responseForProblem id result
+  pure response
+
+responseForProblem :: String -> Server.Response
+responseForProblem = jsonResponse Http.status500 [] . Json.String . Text.pack
