@@ -171,7 +171,7 @@ makeSettings options =
   Server.setBeforeMainLoop (beforeMainLoop options)
     . Server.setOnExceptionResponse exceptionResponse
     . Server.setPort (optionsPort options)
-    . Server.setServerName mempty
+    . Server.setServerName Bytes.empty
     $ Server.defaultSettings
 
 beforeMainLoop :: Options -> IO ()
@@ -250,10 +250,14 @@ getModuleHandler rawPackage rawVersion rawModule = do
   let
     document =
       original
-        Lens.& styleLens
-        Lens..~ styleElement
-        Lens.& scriptLens
-        Lens..~ scriptElement
+        Lens.& haddockStyleLens
+        Lens..~ haddockStyleElement
+        Lens.& haddockScriptLens
+        Lens..~ haddockScriptElement
+        Lens.& mathJaxScriptLens
+        Lens..~ mathJaxScriptElement
+        Lens.& javaScriptLens
+        Lens..~ javaScriptElement
     output = renderXml document
   pure $ htmlResponse Http.status200 [] output
 
@@ -303,35 +307,77 @@ parseXml :: LazyBytes.ByteString -> Either Exception.SomeException Xml.Document
 parseXml =
   Xml.parseLBS Xml.def { Xml.psDecodeEntities = Xml.decodeHtmlEntities }
 
-styleLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
-styleLens =
-  Lens.root Lens../ Lens.named (ci "head") Lens../ Lens.named (ci "link")
+haddockStyleLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
+haddockStyleLens =
+  Lens.root
+    Lens../ Lens.named (ci "head")
+    Lens../ Lens.named (ci "link")
+    . Lens.attributeIs (String.fromString "href") (Text.pack "ocean.css")
 
 ci :: String -> Case.CI Text.Text
 ci = Case.mk . Text.pack
 
-styleElement :: Xml.Element
-styleElement = Xml.Element
+haddockStyleElement :: Xml.Element
+haddockStyleElement = Xml.Element
   (String.fromString "link")
   ( Map.map Text.pack . Map.mapKeys String.fromString $ Map.fromList
-    [("href", "/todo.css"), ("rel", "stylesheet")]
+    [("href", "/haddock.css"), ("rel", "stylesheet")]
   )
   []
 
-scriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
-scriptLens =
-  Lens.root Lens../ Lens.named (ci "head") Lens../ Lens.named (ci "script")
+haddockScriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
+haddockScriptLens =
+  Lens.root
+    Lens../ Lens.named (ci "head")
+    Lens../ Lens.named (ci "script")
+    . Lens.attributeIs (String.fromString "src") (Text.pack "haddock-util.js")
 
-scriptElement :: Xml.Element
-scriptElement = Xml.Element
+haddockScriptElement :: Xml.Element
+haddockScriptElement = Xml.Element
   (String.fromString "script")
   ( Map.map Text.pack . Map.mapKeys String.fromString $ Map.fromList
-    [("src", "/todo.js")]
+    [("src", "/haddock.js")]
   )
+  [Xml.NodeContent $ Text.pack ""]
+
+mathJaxScriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
+mathJaxScriptLens =
+  Lens.root
+    Lens../ Lens.named (ci "head")
+    Lens../ Lens.named (ci "script")
+    . Lens.attributeIs
+        (String.fromString "src")
+        ( Text.pack
+          "https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"
+        )
+
+mathJaxScriptElement :: Xml.Element
+mathJaxScriptElement = Xml.Element
+  (String.fromString "script")
+  ( Map.map Text.pack . Map.mapKeys String.fromString $ Map.fromList
+    [("src", "/math-jax.js")]
+  )
+  [Xml.NodeContent $ Text.pack ""]
+
+javaScriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
+javaScriptLens =
+  Lens.root
+    Lens../ Lens.named (ci "head")
+    Lens../ Lens.named (ci "script")
+    . Lens.attributeIs (String.fromString "type") (Text.pack "text/javascript")
+
+javaScriptElement :: Xml.Element
+javaScriptElement = Xml.Element
+  (String.fromString "script")
+  Map.empty
   [Xml.NodeContent $ Text.pack ""]
 
 renderXml :: Xml.Document -> LazyBytes.ByteString
 renderXml = Xml.renderLBS Xml.def
+  { Xml.rsAttrOrder = const Map.toAscList
+  , Xml.rsPretty = True
+  , Xml.rsXMLDeclaration = False
+  }
 
 htmlResponse
   :: Http.Status
