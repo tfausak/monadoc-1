@@ -9,7 +9,10 @@ import qualified Control.Monad.Trans.Except as Except
 import qualified Control.Monad.Trans.Reader as Reader
 import qualified Data.Aeson as Json
 import qualified Data.ByteString as Bytes
+import qualified Data.ByteString.Lazy as LazyBytes
+import qualified Data.CaseInsensitive as Case
 import qualified Data.List as List
+import qualified Data.Map as Map
 import qualified Data.String as String
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -32,6 +35,8 @@ import qualified System.Exit as Exit
 import qualified System.IO as Io
 import qualified Text.Printf as Printf
 import qualified Text.Read as Read
+import qualified Text.XML as Xml
+import qualified Text.XML.Lens as Lens
 
 defaultMain :: IO ()
 defaultMain = do
@@ -237,13 +242,20 @@ getModuleHandler rawPackage rawVersion rawModule = do
   request <- Client.parseRequest url
   manager <- Trans.lift . Trans.lift $ Client.getGlobalManager
   response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
-  body <- case Http.statusCode $ Client.responseStatus response of
+  input <- case Http.statusCode $ Client.responseStatus response of
     200 -> pure $ Client.responseBody response
     _ -> Except.throwE "failed to get documentation from Hackage"
-  pure $ Server.responseLBS
-    Http.status200
-    [(Http.hContentType, toUtf8 "text/html; charset=utf-8")]
-    body
+  original <- either (Except.throwE . Exception.displayException) pure
+    $ parseXml input
+  let
+    document =
+      original
+        Lens.& styleLens
+        Lens..~ styleElement
+        Lens.& scriptLens
+        Lens..~ scriptElement
+    output = renderXml document
+  pure $ htmlResponse Http.status200 [] output
 
 parsePackageName
   :: Monad m => String -> Except.ExceptT String m Cabal.PackageName
@@ -286,6 +298,56 @@ makeHaddockUrl packageName versionNumber moduleName = concat
   , List.intercalate "-" $ Cabal.components moduleName
   , ".html"
   ]
+
+parseXml :: LazyBytes.ByteString -> Either Exception.SomeException Xml.Document
+parseXml =
+  Xml.parseLBS Xml.def { Xml.psDecodeEntities = Xml.decodeHtmlEntities }
+
+styleLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
+styleLens =
+  Lens.root Lens../ Lens.named (ci "head") Lens../ Lens.named (ci "link")
+
+ci :: String -> Case.CI Text.Text
+ci = Case.mk . Text.pack
+
+styleElement :: Xml.Element
+styleElement = Xml.Element
+  (String.fromString "link")
+  ( Map.map Text.pack . Map.mapKeys String.fromString $ Map.fromList
+    [("href", "/todo.css"), ("rel", "stylesheet")]
+  )
+  []
+
+scriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
+scriptLens =
+  Lens.root Lens../ Lens.named (ci "head") Lens../ Lens.named (ci "script")
+
+scriptElement :: Xml.Element
+scriptElement = Xml.Element
+  (String.fromString "script")
+  ( Map.map Text.pack . Map.mapKeys String.fromString $ Map.fromList
+    [("src", "/todo.js")]
+  )
+  [Xml.NodeContent $ Text.pack ""]
+
+renderXml :: Xml.Document -> LazyBytes.ByteString
+renderXml = Xml.renderLBS Xml.def
+
+htmlResponse
+  :: Http.Status
+  -> Http.ResponseHeaders
+  -> LazyBytes.ByteString
+  -> Server.Response
+htmlResponse status = Server.responseLBS status . addHtmlHeader
+
+addHtmlHeader :: Http.ResponseHeaders -> Http.ResponseHeaders
+addHtmlHeader = (htmlHeader :)
+
+htmlHeader :: Http.Header
+htmlHeader = (Http.hContentType, htmlMime)
+
+htmlMime :: Bytes.ByteString
+htmlMime = toUtf8 "text/html; charset=utf-8"
 
 notFoundHandler :: Handler
 notFoundHandler = pure notFoundResponse
