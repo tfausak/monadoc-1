@@ -15,6 +15,8 @@ import qualified Data.Map as Map
 import qualified Data.String as String
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
+import qualified Data.Text.Lazy as LazyText
+import qualified Data.Text.Lazy.Encoding as LazyText
 import qualified Data.Version as Version
 import qualified Distribution.ModuleName as Cabal
 import qualified Distribution.Text as Cabal
@@ -215,7 +217,13 @@ toUtf8 :: String -> Bytes.ByteString
 toUtf8 = Text.encodeUtf8 . Text.pack
 
 applyMiddleware :: Server.Middleware
-applyMiddleware = Server.gzip Server.def . Server.logStdout
+applyMiddleware = compressionMiddleware . loggingMiddleware
+
+compressionMiddleware :: Server.Middleware
+compressionMiddleware = Server.gzip Server.def
+
+loggingMiddleware :: Server.Middleware
+loggingMiddleware = Server.logStdout
 
 application :: Server.Application
 application request respond = do
@@ -225,6 +233,9 @@ application request respond = do
 
 getHandler :: Server.Request -> Handler
 getHandler request = case (requestMethod request, requestPath request) of
+  ("GET", ["styles", "haddock"]) -> getHaddockStyleHandler
+  ("GET", ["scripts", "haddock"]) -> getHaddockScriptHandler
+  ("GET", ["scripts", "math-jax"]) -> getMathJaxScriptHandler
   ("GET", [packageName, versionNumber, moduleName]) ->
     getModuleHandler packageName versionNumber moduleName
   _ -> notFoundHandler
@@ -242,6 +253,59 @@ fromUtf8 = Text.unpack . Text.decodeUtf8
 
 requestPath :: Server.Request -> [String]
 requestPath = fmap Text.unpack . Server.pathInfo
+
+getHaddockStyleHandler :: Handler
+getHaddockStyleHandler = pure $ cssResponse Http.status200 [] haddockStyle
+
+cssResponse
+  :: Http.Status
+  -> Http.ResponseHeaders
+  -> LazyBytes.ByteString
+  -> Server.Response
+cssResponse status = Server.responseLBS status . addCssHeader
+
+addCssHeader :: Http.ResponseHeaders -> Http.ResponseHeaders
+addCssHeader = (cssHeader :)
+
+cssHeader :: Http.Header
+cssHeader = (Http.hContentType, cssMime)
+
+cssMime :: Bytes.ByteString
+cssMime = toUtf8 "text/css"
+
+haddockStyle :: LazyBytes.ByteString
+haddockStyle = toLazyUtf8 "/* TODO */"
+
+toLazyUtf8 :: String -> LazyBytes.ByteString
+toLazyUtf8 = LazyText.encodeUtf8 . LazyText.pack
+
+getHaddockScriptHandler :: Handler
+getHaddockScriptHandler = pure $ jsResponse Http.status200 [] haddockScript
+
+jsResponse
+  :: Http.Status
+  -> Http.ResponseHeaders
+  -> LazyBytes.ByteString
+  -> Server.Response
+jsResponse status = Server.responseLBS status . addJsHeader
+
+addJsHeader :: Http.ResponseHeaders -> Http.ResponseHeaders
+addJsHeader = (jsHeader :)
+
+jsHeader :: Http.Header
+jsHeader = (Http.hContentType, jsMime)
+
+jsMime :: Bytes.ByteString
+jsMime = toUtf8 "application/javascript"
+
+haddockScript :: LazyBytes.ByteString
+haddockScript = toLazyUtf8 "/* TODO */"
+
+getMathJaxScriptHandler :: Handler
+getMathJaxScriptHandler = pure $ jsResponse Http.status200 [] mathJaxScript
+
+mathJaxScript :: LazyBytes.ByteString
+mathJaxScript = toLazyUtf8 "/* TODO */"
 
 getModuleHandler :: String -> String -> String -> Handler
 getModuleHandler rawPackage rawVersion rawModule = do
@@ -321,7 +385,7 @@ toCi = Case.mk . Text.pack
 
 haddockStyleElement :: Xml.Element
 haddockStyleElement =
-  xmlElement "link" [("href", "/haddock.css"), ("rel", "stylesheet")] []
+  xmlElement "link" [("href", "/styles/haddock"), ("rel", "stylesheet")] []
 
 xmlElement :: String -> [(String, String)] -> [Xml.Node] -> Xml.Element
 xmlElement name = Xml.Element (String.fromString name) . Map.fromList . fmap
@@ -336,7 +400,7 @@ haddockScriptLens =
 
 haddockScriptElement :: Xml.Element
 haddockScriptElement =
-  xmlElement "script" [("src", "/haddock.js")] [emptyXmlNode]
+  xmlElement "script" [("src", "/scripts/haddock")] [emptyXmlNode]
 
 emptyXmlNode :: Xml.Node
 emptyXmlNode = Xml.NodeContent Text.empty
@@ -354,7 +418,7 @@ mathJaxScriptLens =
 
 mathJaxScriptElement :: Xml.Element
 mathJaxScriptElement =
-  xmlElement "script" [("src", "/math-jax.js")] [emptyXmlNode]
+  xmlElement "script" [("src", "/scripts/math-jax")] [emptyXmlNode]
 
 javaScriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
 javaScriptLens =
