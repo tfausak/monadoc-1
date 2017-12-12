@@ -4,10 +4,12 @@ import Data.Semigroup ((<>))
 
 import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
+import qualified Control.Monad.Trans.Class as Trans
 import qualified Control.Monad.Trans.Except as Except
 import qualified Control.Monad.Trans.Reader as Reader
 import qualified Data.Aeson as Json
 import qualified Data.ByteString as Bytes
+import qualified Data.List as List
 import qualified Data.String as String
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -16,6 +18,8 @@ import qualified Distribution.ModuleName as Cabal
 import qualified Distribution.Text as Cabal
 import qualified Distribution.Types.PackageName as Cabal
 import qualified Distribution.Version as Cabal
+import qualified Network.HTTP.Client as Client
+import qualified Network.HTTP.Client.TLS as Client
 import qualified Network.HTTP.Types as Http
 import qualified Network.Wai as Server
 import qualified Network.Wai.Handler.Warp as Server
@@ -36,6 +40,8 @@ defaultMain = do
 
 mainWithArguments :: [String] -> IO ()
 mainWithArguments arguments = do
+  manager <- Client.newTlsManager
+  Client.setGlobalManager manager
   options <- getOptions arguments
   let settings = makeSettings options
   Server.runSettings settings $ applyMiddleware application
@@ -224,10 +230,20 @@ requestPath = fmap Text.unpack . Server.pathInfo
 
 getModuleHandler :: String -> String -> String -> Handler
 getModuleHandler rawPackage rawVersion rawModule = do
-  _ <- parsePackageName rawPackage
-  _ <- parseVersionNumber rawVersion
-  _ <- parseModuleName rawModule
-  pure $ jsonResponse Http.status501 [] Json.Null
+  packageName <- parsePackageName rawPackage
+  versionNumber <- parseVersionNumber rawVersion
+  moduleName <- parseModuleName rawModule
+  let url = makeHaddockUrl packageName versionNumber moduleName
+  request <- Client.parseRequest url
+  manager <- Trans.lift . Trans.lift $ Client.getGlobalManager
+  response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
+  body <- case Http.statusCode $ Client.responseStatus response of
+    200 -> pure $ Client.responseBody response
+    _ -> Except.throwE "failed to get documentation from Hackage"
+  pure $ Server.responseLBS
+    Http.status200
+    [(Http.hContentType, toUtf8 "text/html; charset=utf-8")]
+    body
 
 parsePackageName
   :: Monad m => String -> Except.ExceptT String m Cabal.PackageName
@@ -258,6 +274,18 @@ parseModuleName moduleName =
       )
       pure
     $ Cabal.simpleParse moduleName
+
+makeHaddockUrl
+  :: Cabal.PackageName -> Cabal.Version -> Cabal.ModuleName -> String
+makeHaddockUrl packageName versionNumber moduleName = concat
+  [ "https://hackage.haskell.org/package/"
+  , Cabal.unPackageName packageName
+  , "-"
+  , Cabal.showVersion versionNumber
+  , "/docs/"
+  , List.intercalate "-" $ Cabal.components moduleName
+  , ".html"
+  ]
 
 notFoundHandler :: Handler
 notFoundHandler = pure notFoundResponse
