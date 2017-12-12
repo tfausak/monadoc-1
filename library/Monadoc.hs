@@ -1,7 +1,6 @@
 module Monadoc where
 
-import Data.Semigroup ((<>))
-
+import qualified Control.Arrow as Arrow
 import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
 import qualified Control.Monad.Trans.Class as Trans
@@ -98,7 +97,7 @@ portDescription = Console.Option
   ["port"]
   ( Console.ReqArg
     ( \rawPort options -> case Read.readMaybe rawPort of
-      Nothing -> fail ("invalid port: " <> show rawPort)
+      Nothing -> fail $ Printf.printf "invalid port: " (show rawPort)
       Just port -> pure options { optionsPort = port }
     )
     "PORT"
@@ -116,19 +115,27 @@ parseArguments :: [String] -> ([Update], [String], [String], [String])
 parseArguments = Console.getOpt' Console.Permute descriptions
 
 showUnexpecteds :: [String] -> IO ()
-showUnexpecteds =
-  mapM_ (warnLn . Printf.printf "WARNING: unexpected argument `%s'")
+showUnexpecteds = mapM_ showUnexpected
+
+showUnexpected :: String -> IO ()
+showUnexpected = warnLn . Printf.printf "WARNING: unexpected argument `%s'"
 
 showUnknowns :: [String] -> IO ()
-showUnknowns = mapM_ (warnLn . Printf.printf "WARNING: unknown option `%s'")
+showUnknowns = mapM_ showUnknown
+
+showUnknown :: String -> IO ()
+showUnknown = warnLn . Printf.printf "WARNING: unknown option `%s'"
 
 warnLn :: String -> IO ()
 warnLn = Io.hPutStrLn Io.stderr
 
 showErrorsAndExit :: [String] -> IO never
 showErrorsAndExit errors = do
-  mapM_ (warn . Printf.printf "ERROR: %s") errors
+  mapM_ showError errors
   Exit.exitFailure
+
+showError :: String -> IO ()
+showError = warn . Printf.printf "ERROR: %s"
 
 warn :: String -> IO ()
 warn = Io.hPutStr Io.stderr
@@ -137,7 +144,10 @@ buildOptionsOrExit :: [Update] -> IO Options
 buildOptionsOrExit = either showProblemAndExit pure . buildOptions
 
 buildOptions :: [Update] -> Either String Options
-buildOptions = Monad.foldM (\options update -> update options) defaultOptions
+buildOptions = Monad.foldM updateOptions defaultOptions
+
+updateOptions :: Options -> Update -> Either String Options
+updateOptions options update = update options
 
 defaultOptions :: Options
 defaultOptions = Options
@@ -264,31 +274,23 @@ getModuleHandler rawPackage rawVersion rawModule = do
 parsePackageName
   :: Monad m => String -> Except.ExceptT String m Cabal.PackageName
 parsePackageName packageName =
-  maybe
-      ( Except.throwE . Printf.printf "invalid package name: %s" $ show
-        packageName
-      )
-      pure
+  maybeToExcept (Printf.printf "invalid package name: %s" (show packageName))
     $ Cabal.simpleParse packageName
+
+maybeToExcept :: Monad m => e -> Maybe a -> Except.ExceptT e m a
+maybeToExcept problem = maybe (Except.throwE problem) pure
 
 parseVersionNumber
   :: Monad m => String -> Except.ExceptT String m Cabal.Version
-parseVersionNumber versionNumber =
-  maybe
-      ( Except.throwE . Printf.printf "invalid version number: %s" $ show
-        versionNumber
-      )
-      pure
+parseVersionNumber versionNumber
+  = maybeToExcept
+      (Printf.printf "invalid version number: %s" (show versionNumber))
     $ Cabal.simpleParse versionNumber
 
 parseModuleName
   :: Monad m => String -> Except.ExceptT String m Cabal.ModuleName
 parseModuleName moduleName =
-  maybe
-      ( Except.throwE . Printf.printf "invalid module name: %s" $ show
-        moduleName
-      )
-      pure
+  maybeToExcept (Printf.printf "invalid module name: %s" (show moduleName))
     $ Cabal.simpleParse moduleName
 
 makeHaddockUrl
@@ -310,41 +312,40 @@ parseXml =
 haddockStyleLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
 haddockStyleLens =
   Lens.root
-    Lens../ Lens.named (ci "head")
-    Lens../ Lens.named (ci "link")
+    Lens../ Lens.named (toCi "head")
+    Lens../ Lens.named (toCi "link")
     . Lens.attributeIs (String.fromString "href") (Text.pack "ocean.css")
 
-ci :: String -> Case.CI Text.Text
-ci = Case.mk . Text.pack
+toCi :: String -> Case.CI Text.Text
+toCi = Case.mk . Text.pack
 
 haddockStyleElement :: Xml.Element
-haddockStyleElement = Xml.Element
-  (String.fromString "link")
-  ( Map.map Text.pack . Map.mapKeys String.fromString $ Map.fromList
-    [("href", "/haddock.css"), ("rel", "stylesheet")]
-  )
-  []
+haddockStyleElement =
+  xmlElement "link" [("href", "/haddock.css"), ("rel", "stylesheet")] []
+
+xmlElement :: String -> [(String, String)] -> [Xml.Node] -> Xml.Element
+xmlElement name = Xml.Element (String.fromString name) . Map.fromList . fmap
+  (String.fromString Arrow.*** Text.pack)
 
 haddockScriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
 haddockScriptLens =
   Lens.root
-    Lens../ Lens.named (ci "head")
-    Lens../ Lens.named (ci "script")
+    Lens../ Lens.named (toCi "head")
+    Lens../ Lens.named (toCi "script")
     . Lens.attributeIs (String.fromString "src") (Text.pack "haddock-util.js")
 
 haddockScriptElement :: Xml.Element
-haddockScriptElement = Xml.Element
-  (String.fromString "script")
-  ( Map.map Text.pack . Map.mapKeys String.fromString $ Map.fromList
-    [("src", "/haddock.js")]
-  )
-  [Xml.NodeContent $ Text.pack ""]
+haddockScriptElement =
+  xmlElement "script" [("src", "/haddock.js")] [emptyXmlNode]
+
+emptyXmlNode :: Xml.Node
+emptyXmlNode = Xml.NodeContent Text.empty
 
 mathJaxScriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
 mathJaxScriptLens =
   Lens.root
-    Lens../ Lens.named (ci "head")
-    Lens../ Lens.named (ci "script")
+    Lens../ Lens.named (toCi "head")
+    Lens../ Lens.named (toCi "script")
     . Lens.attributeIs
         (String.fromString "src")
         ( Text.pack
@@ -352,25 +353,18 @@ mathJaxScriptLens =
         )
 
 mathJaxScriptElement :: Xml.Element
-mathJaxScriptElement = Xml.Element
-  (String.fromString "script")
-  ( Map.map Text.pack . Map.mapKeys String.fromString $ Map.fromList
-    [("src", "/math-jax.js")]
-  )
-  [Xml.NodeContent $ Text.pack ""]
+mathJaxScriptElement =
+  xmlElement "script" [("src", "/math-jax.js")] [emptyXmlNode]
 
 javaScriptLens :: Lens.Simple Lens.Traversal Xml.Document Xml.Element
 javaScriptLens =
   Lens.root
-    Lens../ Lens.named (ci "head")
-    Lens../ Lens.named (ci "script")
+    Lens../ Lens.named (toCi "head")
+    Lens../ Lens.named (toCi "script")
     . Lens.attributeIs (String.fromString "type") (Text.pack "text/javascript")
 
 javaScriptElement :: Xml.Element
-javaScriptElement = Xml.Element
-  (String.fromString "script")
-  Map.empty
-  [Xml.NodeContent $ Text.pack ""]
+javaScriptElement = xmlElement "script" [] [emptyXmlNode]
 
 renderXml :: Xml.Document -> LazyBytes.ByteString
 renderXml = Xml.renderLBS Xml.def
