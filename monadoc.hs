@@ -44,6 +44,8 @@ main = do
 
 mainWithArguments :: [String] -> IO ()
 mainWithArguments arguments = do
+  Io.hSetBuffering Io.stdout Io.LineBuffering
+  Io.hSetBuffering Io.stderr Io.LineBuffering
   manager <- Client.newTlsManager
   Client.setGlobalManager manager
   options <- getOptions arguments

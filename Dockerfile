@@ -23,5 +23,5 @@ FROM debian:stable-slim
 
   RUN apt-get update && apt-get install --assume-yes ca-certificates libgmp-dev netbase
   COPY --from=build /root/.local/bin/monadoc /usr/local/bin/
-  EXPOSE 80
-  CMD monadoc --port 80
+  EXPOSE 8080
+  CMD monadoc

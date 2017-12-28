@@ -1,0 +1,7 @@
+version: '3.4'
+
+services:
+  monadoc:
+    image: tfausak/monadoc:latest
+    ports:
+      - '8080:8080'
