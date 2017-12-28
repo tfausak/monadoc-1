@@ -97,7 +97,7 @@ portDescription = Console.Option
   ["port"]
   ( Console.ReqArg
     ( \rawPort options -> case Read.readMaybe rawPort of
-      Nothing -> fail $ Printf.printf "invalid port: " (show rawPort)
+      Nothing -> fail $ Printf.printf "invalid port: %s" (show rawPort)
       Just port -> pure options { optionsPort = port }
     )
     "PORT"
