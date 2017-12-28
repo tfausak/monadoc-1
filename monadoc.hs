@@ -1,5 +1,3 @@
-module Monadoc where
-
 import qualified Control.Arrow as Arrow
 import qualified Control.Exception as Exception
 import qualified Control.Monad as Monad
@@ -39,8 +37,8 @@ import qualified Text.Read as Read
 import qualified Text.XML as Xml
 import qualified Text.XML.Lens as Lens
 
-defaultMain :: IO ()
-defaultMain = do
+main :: IO ()
+main = do
   arguments <- Environment.getArgs
   mainWithArguments arguments
 

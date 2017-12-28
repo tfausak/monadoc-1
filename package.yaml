@@ -32,13 +32,9 @@ ghc-options:
   - -Wno-safe
   - -Wno-unsafe
 
-library:
-  source-dirs: library
-
 executable:
-  dependencies: monadoc
   ghc-options:
     - -rtsopts
     - -threaded
-  main: Main.hs
-  source-dirs: executables
+  main: monadoc.hs
+  source-dirs: .
