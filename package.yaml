@@ -29,7 +29,6 @@ dependencies:
 ghc-options:
   - -Weverything
   - -Wno-implicit-prelude
-  - -Wno-safe
   - -Wno-unsafe
 
 executable:
