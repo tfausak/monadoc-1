@@ -438,7 +438,6 @@ javaScriptElement = xmlElement "script" [] [emptyXmlNode]
 renderXml :: Xml.Document -> LazyBytes.ByteString
 renderXml = Xml.renderLBS Xml.def
   { Xml.rsAttrOrder = const Map.toAscList
-  , Xml.rsPretty = True
   , Xml.rsXMLDeclaration = False
   }
 
