@@ -231,6 +231,7 @@ application request respond = do
 
 getHandler :: Server.Request -> Handler
 getHandler request = case (requestMethod request, requestPath request) of
+  ("GET", ["favicon.ico"]) -> getFaviconHandler
   ("GET", ["styles", "haddock"]) -> getHaddockStyleHandler
   ("GET", ["scripts", "haddock"]) -> getHaddockScriptHandler
   ("GET", ["scripts", "math-jax"]) -> getMathJaxScriptHandler
@@ -251,6 +252,12 @@ fromUtf8 = Text.unpack . Text.decodeUtf8
 
 requestPath :: Server.Request -> [String]
 requestPath = fmap Text.unpack . Server.pathInfo
+
+getFaviconHandler :: Handler
+getFaviconHandler = pure $ Server.responseLBS
+  Http.status200
+  [(Http.hContentType, toUtf8 "image/x-icon")]
+  LazyBytes.empty
 
 getHaddockStyleHandler :: Handler
 getHaddockStyleHandler = pure $ cssResponse Http.status200 [] haddockStyle
