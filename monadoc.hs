@@ -249,8 +249,12 @@ makeApplication :: Client.Manager -> Sql.Connection -> Server.Application
 makeApplication manager connection request respond = do
   let
     handler = getHandler request
-    r = R {rConnection = connection, rManager = manager, rRequest = request}
-  response <- runHandler handler r
+    env = Env
+      { envConnection = connection
+      , envManager = manager
+      , envRequest = request
+      }
+  response <- runHandler handler env
   respond response
 
 getHandler :: Server.Request -> Handler
@@ -266,13 +270,13 @@ getHandler request = case (requestMethod request, requestPath request) of
 
 type Handler
   = Except.ExceptT String
-  ( Reader.ReaderT R IO
+  ( Reader.ReaderT Env IO
   ) Server.Response
 
-data R = R
-  { rConnection :: Sql.Connection
-  , rManager :: Client.Manager
-  , rRequest :: Server.Request
+data Env = Env
+  { envConnection :: Sql.Connection
+  , envManager :: Client.Manager
+  , envRequest :: Server.Request
   }
 
 requestMethod :: Server.Request -> String
@@ -448,7 +452,7 @@ getModuleHandler rawPackage rawVersion rawModule = do
   moduleName <- parseModuleName rawModule
   let url = makeHaddockUrl packageName versionNumber moduleName
   request <- Client.parseRequest url
-  manager <- Trans.lift $ Reader.asks rManager
+  manager <- Trans.lift $ Reader.asks envManager
   response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
   input <- case Http.statusCode $ Client.responseStatus response of
     200 -> pure $ Client.responseBody response
@@ -592,9 +596,9 @@ notFoundHandler = pure notFoundResponse
 notFoundResponse :: Server.Response
 notFoundResponse = jsonResponse Http.status404 [] Json.Null
 
-runHandler :: Handler -> R -> IO Server.Response
-runHandler handler r = do
-  result <- Reader.runReaderT (Except.runExceptT handler) r
+runHandler :: Handler -> Env -> IO Server.Response
+runHandler handler env = do
+  result <- Reader.runReaderT (Except.runExceptT handler) env
   let response = either responseForProblem id result
   pure response
 
