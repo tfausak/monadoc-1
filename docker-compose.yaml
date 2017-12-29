@@ -2,6 +2,6 @@ version: '3.4'
 
 services:
   monadoc:
-    image: tfausak/monadoc:latest
+    image: quay.io/tfausak/monadoc:latest
     ports:
       - '8080:8080'
