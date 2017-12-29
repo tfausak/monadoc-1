@@ -2,7 +2,7 @@ FROM debian:stable-slim AS build
 
   ARG STACK_VERSION=1.6.3
 
-  RUN apt-get update && apt-get install --assume-yes gcc libgmp-dev make wget xz-utils zlib1g-dev
+  RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-yes gcc libgmp-dev make wget xz-utils zlib1g-dev
   
   WORKDIR /tmp/stack
   RUN wget https://github.com/commercialhaskell/stack/releases/download/v$STACK_VERSION/stack-$STACK_VERSION-linux-x86_64-static.tar.gz
@@ -21,7 +21,7 @@ FROM debian:stable-slim AS build
 
 FROM debian:stable-slim
 
-  RUN apt-get update && apt-get install --assume-yes ca-certificates libgmp-dev netbase
+  RUN apt-get update && apt-get upgrade --assume-yes && apt-get install --assume-yes ca-certificates libgmp-dev netbase
   COPY --from=build /root/.local/bin/monadoc /usr/local/bin/
   EXPOSE 8080
   CMD monadoc
