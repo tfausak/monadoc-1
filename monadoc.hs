@@ -50,10 +50,14 @@ mainWithArguments arguments = do
   manager <- Client.newTlsManager
   options <- getOptions arguments
   let settings = makeSettings options
-  Sql.withConnection (optionsDatabase options)
-    $ Server.runSettings settings
-    . applyMiddleware
-    . makeApplication manager
+  Sql.withConnection (optionsDatabase options) $ \connection -> do
+    runMigrations connection
+    Server.runSettings settings . applyMiddleware $ makeApplication
+      manager
+      connection
+
+runMigrations :: Sql.Connection -> IO ()
+runMigrations _ = pure ()
 
 getOptions :: [String] -> IO Options
 getOptions arguments = do
