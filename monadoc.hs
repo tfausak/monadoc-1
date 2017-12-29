@@ -282,10 +282,83 @@ getRootHandler =
         \</html>"
 
 getFaviconHandler :: Handler
-getFaviconHandler = pure $ Server.responseLBS
-  Http.status200
-  [(Http.hContentType, toUtf8 "image/x-icon")]
-  LazyBytes.empty
+getFaviconHandler =
+  pure
+    . Server.responseLBS
+        Http.status200
+        [(Http.hContentType, toUtf8 "image/x-icon")]
+    $ LazyBytes.pack
+        [ 0x00
+        , 0x00
+        , 0x01
+        , 0x00
+        , 0x01
+        , 0x00
+        , 0x01
+        , 0x01
+        , 0x00
+        , 0x00
+        , 0x01
+        , 0x00
+        , 0x18
+        , 0x00
+        , 0x2c
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x16
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x28
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x01
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x02
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x01
+        , 0x00
+        , 0x18
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x08
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x28
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x28
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x86
+        , 0x50
+        , 0x5e
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        , 0x00
+        ]
 
 getHaddockStyleHandler :: Handler
 getHaddockStyleHandler = pure $ cssResponse Http.status200 [] haddockStyle
