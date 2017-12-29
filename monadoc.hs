@@ -54,7 +54,7 @@ mainWithArguments arguments = do
   Sql.withConnection (optionsDatabase options)
     $ Server.runSettings settings
     . applyMiddleware
-    . makeApplication
+    . makeApplication manager
 
 getOptions :: [String] -> IO Options
 getOptions arguments = do
@@ -246,10 +246,12 @@ compressionMiddleware = Server.gzip Server.def
 loggingMiddleware :: Server.Middleware
 loggingMiddleware = Server.logStdout
 
-makeApplication :: Sql.Connection -> Server.Application
-makeApplication connection request respond = do
-  let handler = getHandler request
-  response <- runHandler handler connection request
+makeApplication :: Client.Manager -> Sql.Connection -> Server.Application
+makeApplication manager connection request respond = do
+  let
+    handler = getHandler request
+    r = R {rConnection = connection, rManager = manager, rRequest = request}
+  response <- runHandler handler r
   respond response
 
 getHandler :: Server.Request -> Handler
@@ -270,6 +272,7 @@ type Handler
 
 data R = R
   { rConnection :: Sql.Connection
+  , rManager :: Client.Manager
   , rRequest :: Server.Request
   }
 
@@ -590,11 +593,9 @@ notFoundHandler = pure notFoundResponse
 notFoundResponse :: Server.Response
 notFoundResponse = jsonResponse Http.status404 [] Json.Null
 
-runHandler :: Handler -> Sql.Connection -> Server.Request -> IO Server.Response
-runHandler handler connection request = do
-  result <- Reader.runReaderT
-    (Except.runExceptT handler)
-    R {rConnection = connection, rRequest = request}
+runHandler :: Handler -> R -> IO Server.Response
+runHandler handler r = do
+  result <- Reader.runReaderT (Except.runExceptT handler) r
   let response = either responseForProblem id result
   pure response
 
