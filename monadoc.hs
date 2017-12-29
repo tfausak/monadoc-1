@@ -233,6 +233,7 @@ application request respond = do
 
 getHandler :: Server.Request -> Handler
 getHandler request = case (requestMethod request, requestPath request) of
+  ("GET", []) -> getRootHandler
   ("GET", ["favicon.ico"]) -> getFaviconHandler
   ("GET", ["styles", "haddock"]) -> getHaddockStyleHandler
   ("GET", ["scripts", "haddock"]) -> getHaddockScriptHandler
@@ -254,6 +255,31 @@ fromUtf8 = Text.unpack . Text.decodeUtf8
 
 requestPath :: Server.Request -> [String]
 requestPath = fmap Text.unpack . Server.pathInfo
+
+getRootHandler :: Handler
+getRootHandler =
+  pure
+    . htmlResponse Http.status200 []
+    $ toLazyUtf8
+        "<!doctype html>\
+        \<html>\
+          \<head>\
+            \<title>Monadoc</title>\
+          \</head>\
+          \<body>\
+            \<h1>Monadoc</h1>\
+            \<p>\
+              \ This site is still a work in progress.\
+              \ You can follow the development <a href='https://github.com/tfausak/monadoc'>on GitHub</a>.\
+              \ You can also browse some example modules.\
+            \</p>\
+            \<ul>\
+              \<li><a href='/flow/1.0.10/Flow'>Flow from flow 1.0.10</a></li>\
+              \<li><a href='/base/4.10.1.0/Prelude'>Prelude from base 4.10.1.0</a></li>\
+              \<li><a href='/ghc-prim/0.5.1.1/GHC.Prim'>GHC.Prim from ghc-prim 0.5.1.1</a></li>\
+            \</ul>\
+          \</body>\
+        \</html>"
 
 getFaviconHandler :: Handler
 getFaviconHandler = pure $ Server.responseLBS
