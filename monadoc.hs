@@ -16,6 +16,7 @@ import qualified Data.Text.Encoding as Text
 import qualified Data.Text.Lazy as LazyText
 import qualified Data.Text.Lazy.Encoding as LazyText
 import qualified Data.Version as Version
+import qualified Database.SQLite.Simple as Sql
 import qualified Distribution.ModuleName as Cabal
 import qualified Distribution.Text as Cabal
 import qualified Distribution.Types.PackageName as Cabal
@@ -50,7 +51,10 @@ mainWithArguments arguments = do
   Client.setGlobalManager manager
   options <- getOptions arguments
   let settings = makeSettings options
-  Server.runSettings settings $ applyMiddleware application
+  Sql.withConnection (optionsDatabase options)
+    $ Server.runSettings settings
+    . applyMiddleware
+    . makeApplication
 
 getOptions :: [String] -> IO Options
 getOptions arguments = do
@@ -64,7 +68,8 @@ getOptions arguments = do
   pure options
 
 data Options = Options
-  { optionsHost :: Server.HostPreference
+  { optionsDatabase :: String
+  , optionsHost :: Server.HostPreference
   , optionsPort :: Server.Port
   , optionsShowHelp :: Bool
   , optionsShowVersion :: Bool
@@ -74,7 +79,22 @@ type Update = Options -> Either String Options
 
 descriptions :: [Console.OptDescr Update]
 descriptions =
-  [helpDescription, hostDescription, portDescription, versionDescription]
+  [ databaseDescription
+  , helpDescription
+  , hostDescription
+  , portDescription
+  , versionDescription
+  ]
+
+databaseDescription :: Console.OptDescr Update
+databaseDescription = Console.Option
+  []
+  ["database"]
+  ( Console.ReqArg
+    (\database options -> pure options { optionsDatabase = database })
+    "DATABASE"
+  )
+  "database to use"
 
 helpDescription :: Console.OptDescr Update
 helpDescription = Console.Option
@@ -153,7 +173,8 @@ updateOptions options update = update options
 
 defaultOptions :: Options
 defaultOptions = Options
-  { optionsHost = String.fromString "127.0.0.1"
+  { optionsDatabase = ":memory:"
+  , optionsHost = String.fromString "127.0.0.1"
   , optionsPort = 8080
   , optionsShowHelp = False
   , optionsShowVersion = False
@@ -225,8 +246,8 @@ compressionMiddleware = Server.gzip Server.def
 loggingMiddleware :: Server.Middleware
 loggingMiddleware = Server.logStdout
 
-application :: Server.Application
-application request respond = do
+makeApplication :: Sql.Connection -> Server.Application
+makeApplication _ request respond = do
   let handler = getHandler request
   response <- runHandler handler request
   respond response
