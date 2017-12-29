@@ -247,9 +247,9 @@ loggingMiddleware :: Server.Middleware
 loggingMiddleware = Server.logStdout
 
 makeApplication :: Sql.Connection -> Server.Application
-makeApplication _ request respond = do
+makeApplication connection request respond = do
   let handler = getHandler request
-  response <- runHandler handler request
+  response <- runHandler handler connection request
   respond response
 
 getHandler :: Server.Request -> Handler
@@ -268,9 +268,10 @@ type Handler
   ( Reader.ReaderT R IO
   ) Server.Response
 
-newtype R = R
-  { rRequest :: Server.Request
-  } deriving Show
+data R = R
+  { rConnection :: Sql.Connection
+  , rRequest :: Server.Request
+  }
 
 requestMethod :: Server.Request -> String
 requestMethod = fromUtf8 . Server.requestMethod
@@ -589,11 +590,11 @@ notFoundHandler = pure notFoundResponse
 notFoundResponse :: Server.Response
 notFoundResponse = jsonResponse Http.status404 [] Json.Null
 
-runHandler :: Handler -> Server.Request -> IO Server.Response
-runHandler handler request = do
+runHandler :: Handler -> Sql.Connection -> Server.Request -> IO Server.Response
+runHandler handler connection request = do
   result <- Reader.runReaderT
     (Except.runExceptT handler)
-    R {rRequest = request}
+    R {rConnection = connection, rRequest = request}
   let response = either responseForProblem id result
   pure response
 
