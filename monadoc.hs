@@ -48,7 +48,6 @@ mainWithArguments arguments = do
   Io.hSetBuffering Io.stdout Io.LineBuffering
   Io.hSetBuffering Io.stderr Io.LineBuffering
   manager <- Client.newTlsManager
-  Client.setGlobalManager manager
   options <- getOptions arguments
   let settings = makeSettings options
   Sql.withConnection (optionsDatabase options)
@@ -449,7 +448,7 @@ getModuleHandler rawPackage rawVersion rawModule = do
   moduleName <- parseModuleName rawModule
   let url = makeHaddockUrl packageName versionNumber moduleName
   request <- Client.parseRequest url
-  manager <- Trans.lift . Trans.lift $ Client.getGlobalManager
+  manager <- Trans.lift $ Reader.asks rManager
   response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
   input <- case Http.statusCode $ Client.responseStatus response of
     200 -> pure $ Client.responseBody response
