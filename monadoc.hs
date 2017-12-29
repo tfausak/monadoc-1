@@ -265,8 +265,12 @@ getHandler request = case (requestMethod request, requestPath request) of
 
 type Handler
   = Except.ExceptT String
-  ( Reader.ReaderT Server.Request IO
+  ( Reader.ReaderT R IO
   ) Server.Response
+
+newtype R = R
+  { rRequest :: Server.Request
+  } deriving Show
 
 requestMethod :: Server.Request -> String
 requestMethod = fromUtf8 . Server.requestMethod
@@ -587,7 +591,9 @@ notFoundResponse = jsonResponse Http.status404 [] Json.Null
 
 runHandler :: Handler -> Server.Request -> IO Server.Response
 runHandler handler request = do
-  result <- Reader.runReaderT (Except.runExceptT handler) request
+  result <- Reader.runReaderT
+    (Except.runExceptT handler)
+    R {rRequest = request}
   let response = either responseForProblem id result
   pure response
 
