@@ -444,10 +444,14 @@ haddockScript :: LazyBytes.ByteString
 haddockScript = toLazyUtf8 "/* TODO */"
 
 getMathJaxScriptHandler :: Handler
-getMathJaxScriptHandler = pure $ jsResponse Http.status200 [] mathJaxScript
-
-mathJaxScript :: LazyBytes.ByteString
-mathJaxScript = toLazyUtf8 "/* TODO */"
+getMathJaxScriptHandler = pure $ Server.responseLBS
+  Http.status302
+  [ ( Http.hLocation
+    , toUtf8
+      "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML"
+    )
+  ]
+  LazyBytes.empty
 
 getModuleHandler :: String -> String -> String -> Handler
 getModuleHandler rawPackage rawVersion rawModule = do
