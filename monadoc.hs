@@ -535,12 +535,20 @@ fetchModuleHaddocks
        LazyBytes.ByteString
 fetchModuleHaddocks packageName versionNumber moduleName = do
   let url = makeHaddockUrl packageName versionNumber moduleName
-  request <- Client.parseRequest url
-  manager <- Trans.lift $ Reader.asks envManager
-  response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
-  case Http.statusCode $ Client.responseStatus response of
-    200 -> pure $ Client.responseBody response
-    _ -> Except.throwE "failed to get documentation from Hackage"
+  connection <- Trans.lift $ Reader.asks envConnection
+  rows <- Trans.lift . Trans.lift $ Sql.query
+    connection
+    (toQuery "select value from cache where key = ?")
+    [url]
+  case rows of
+    [[value]] -> pure value
+    _ -> do
+      request <- Client.parseRequest url
+      manager <- Trans.lift $ Reader.asks envManager
+      response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
+      case Http.statusCode $ Client.responseStatus response of
+        200 -> pure $ Client.responseBody response
+        _ -> Except.throwE "failed to get documentation from Hackage"
 
 parsePackageName
   :: Monad m => String -> Except.ExceptT String m Cabal.PackageName
