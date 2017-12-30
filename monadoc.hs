@@ -508,13 +508,7 @@ getModuleHandler rawPackage rawVersion rawModule = do
   packageName <- parsePackageName rawPackage
   versionNumber <- parseVersionNumber rawVersion
   moduleName <- parseModuleName rawModule
-  let url = makeHaddockUrl packageName versionNumber moduleName
-  request <- Client.parseRequest url
-  manager <- Trans.lift $ Reader.asks envManager
-  response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
-  input <- case Http.statusCode $ Client.responseStatus response of
-    200 -> pure $ Client.responseBody response
-    _ -> Except.throwE "failed to get documentation from Hackage"
+  input <- fetchModuleHaddocks packageName versionNumber moduleName
   original <- either (Except.throwE . Exception.displayException) pure
     $ parseXml input
   let
@@ -530,6 +524,23 @@ getModuleHandler rawPackage rawVersion rawModule = do
         Lens..~ javaScriptElement
     output = renderXml document
   pure $ htmlResponse Http.status200 [] output
+
+fetchModuleHaddocks
+  :: Cabal.PackageName
+  -> Cabal.Version
+  -> Cabal.ModuleName
+  -> Except.ExceptT
+       String
+       (Reader.ReaderT Env IO)
+       LazyBytes.ByteString
+fetchModuleHaddocks packageName versionNumber moduleName = do
+  let url = makeHaddockUrl packageName versionNumber moduleName
+  request <- Client.parseRequest url
+  manager <- Trans.lift $ Reader.asks envManager
+  response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
+  case Http.statusCode $ Client.responseStatus response of
+    200 -> pure $ Client.responseBody response
+    _ -> Except.throwE "failed to get documentation from Hackage"
 
 parsePackageName
   :: Monad m => String -> Except.ExceptT String m Cabal.PackageName
