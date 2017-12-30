@@ -4,6 +4,7 @@ import qualified Control.Monad as Monad
 import qualified Control.Monad.Trans.Class as Trans
 import qualified Control.Monad.Trans.Except as Except
 import qualified Control.Monad.Trans.Reader as Reader
+import qualified Crypto.Hash as Crypto
 import qualified Data.Aeson as Json
 import qualified Data.ByteString as Bytes
 import qualified Data.ByteString.Lazy as LazyBytes
@@ -546,9 +547,20 @@ fetchModuleHaddocks packageName versionNumber moduleName = do
       request <- Client.parseRequest url
       manager <- Trans.lift $ Reader.asks envManager
       response <- Trans.lift . Trans.lift $ Client.httpLbs request manager
-      case Http.statusCode $ Client.responseStatus response of
+      body <- case Http.statusCode $ Client.responseStatus response of
         200 -> pure $ Client.responseBody response
         _ -> Except.throwE "failed to get documentation from Hackage"
+      Trans.lift . Trans.lift $ Sql.execute
+        connection
+        (toQuery "insert into cache (key, hash, value) values (?, ?, ?)")
+        (url, md5 body, body)
+      pure body
+
+md5 :: LazyBytes.ByteString -> String
+md5 = show . asMd5 . Crypto.hashlazy
+
+asMd5 :: Crypto.Digest Crypto.MD5 -> Crypto.Digest Crypto.MD5
+asMd5 = id
 
 parsePackageName
   :: Monad m => String -> Except.ExceptT String m Cabal.PackageName
