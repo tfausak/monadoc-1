@@ -21,6 +21,7 @@ dependencies:
   http-types: ^>= 0.9.1
   sqlite-simple: ^>= 0.4.14.0
   text: ^>= 1.2.2.2
+  time: ^>= 1.8.0.2
   transformers: ^>= 0.5.2.0
   wai-extra: ^>= 3.0.20.2
   wai: ^>= 3.2.1.1

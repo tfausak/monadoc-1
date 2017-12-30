@@ -8,13 +8,16 @@ import qualified Data.Aeson as Json
 import qualified Data.ByteString as Bytes
 import qualified Data.ByteString.Lazy as LazyBytes
 import qualified Data.CaseInsensitive as Case
+import qualified Data.Fixed as Fixed
 import qualified Data.List as List
 import qualified Data.Map as Map
+import qualified Data.Maybe as Maybe
 import qualified Data.String as String
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import qualified Data.Text.Lazy as LazyText
 import qualified Data.Text.Lazy.Encoding as LazyText
+import qualified Data.Time as Time
 import qualified Data.Version as Version
 import qualified Database.SQLite.Simple as Sql
 import qualified Distribution.ModuleName as Cabal
@@ -57,7 +60,54 @@ mainWithArguments arguments = do
       connection
 
 runMigrations :: Sql.Connection -> IO ()
-runMigrations _ = pure ()
+runMigrations connection = do
+  Sql.execute_ connection
+    $ toQuery
+        "create table if not exists migrations \
+        \( id integer not null primary key autoincrement \
+        \, dt text not null unique \
+        \)"
+  mapM_ (runMigration connection) migrations
+
+toQuery :: String -> Sql.Query
+toQuery = Sql.Query . Text.pack
+
+runMigration :: Sql.Connection -> (Time.UTCTime, String) -> IO ()
+runMigration connection (time, query) = Sql.withTransaction connection $ do
+  rows <- Sql.query
+    connection
+    (toQuery "select count(*) from migrations where dt = ?")
+    [time]
+  case (rows :: [[Word]]) of
+    [[1]] -> pure ()
+    _ -> do
+      Sql.execute_ connection (toQuery query)
+      Sql.execute
+        connection
+        (toQuery "insert into migrations (dt) values (?)")
+        [time]
+
+migrations :: [(Time.UTCTime, String)]
+migrations =
+  [ ( unsafeUtc 2017 12 30 8 34 0
+    , "create table cache \
+    \( id integer not null primary key autoincrement \
+    \, key text not null unique \
+    \, hash text not null \
+    \, value blob not null \
+    \)"
+    )
+  ]
+
+unsafeUtc :: Integer -> Int -> Int -> Int -> Int -> Fixed.Pico -> Time.UTCTime
+unsafeUtc year month day hour minute second =
+  Maybe.fromJust $ utc year month day hour minute second
+
+utc :: Integer -> Int -> Int -> Int -> Int -> Fixed.Pico -> Maybe Time.UTCTime
+utc year month day hour minute second =
+  Time.UTCTime <$> Time.fromGregorianValid year month day <*> fmap
+    Time.timeOfDayToTime
+    (Time.makeTimeOfDayValid hour minute second)
 
 getOptions :: [String] -> IO Options
 getOptions arguments = do
